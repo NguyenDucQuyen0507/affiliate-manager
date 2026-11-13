@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -34,10 +34,20 @@ export function DealFilters({
   const pathname = usePathname();
   const [, startTransition] = useTransition();
   const [query, setQuery] = useState(filters.q);
+  // Last q this component put in the URL; any other change came from outside.
+  const sentQuery = useRef(filters.q);
+
+  // "Xóa bộ lọc" or the browser Back button changed ?q=: show it in the search box.
+  useEffect(() => {
+    if (filters.q === sentQuery.current) return;
+    sentQuery.current = filters.q;
+    setQuery(filters.q);
+  }, [filters.q]);
 
   // Any filter change resets pagination to page 1.
   function navigate(patch: Partial<Filters>) {
     const next = { ...filters, q: query.trim(), ...patch, page: 1 };
+    sentQuery.current = next.q;
     startTransition(() => {
       router.replace(`${pathname}${dealFiltersToSearch(next)}`, { scroll: false });
     });

@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ProductThumbnail } from "@/components/product-thumbnail";
 import { RetryButton } from "@/components/schedule/post-actions";
+import { requireAdmin } from "@/lib/auth-guard";
 import { getBioPageStatus, getChannels } from "@/lib/channels";
 import { getDealStats } from "@/lib/deals";
 import {
@@ -54,13 +55,14 @@ async function DashboardView() {
   await connection();
   const now = nowInAppTimeZone();
   const today = now.date;
+  const admin = await requireAdmin();
 
   const [dealStats, counts, todayPosts, pending, failed, channels, bioStatus] = await Promise.all([
-    getDealStats(today),
-    getPostCounts(),
-    getPostsOnDate(today),
-    getPostsByStatus("PENDING"),
-    getPostsByStatus("FAILED"),
+    getDealStats(admin.id, today),
+    getPostCounts(admin.id),
+    getPostsOnDate(admin.id, today),
+    getPostsByStatus(admin.id, "PENDING"),
+    getPostsByStatus(admin.id, "FAILED"),
     getChannels(),
     getBioPageStatus(),
   ]);
@@ -106,7 +108,7 @@ async function DashboardView() {
     <div className="flex flex-col gap-7">
       <PageHeader
         title="Tổng quan"
-        description={`${weekdayLabel(today)}, ${formatShortDate(today)} · Dữ liệu mẫu để minh họa bố cục`}
+        description={`${weekdayLabel(today)}, ${formatShortDate(today)}`}
       />
 
       <section aria-label="Chỉ số chính" className="grid grid-cols-2 gap-4 xl:grid-cols-4">

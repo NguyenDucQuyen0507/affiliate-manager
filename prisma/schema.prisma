@@ -85,29 +85,35 @@ model Channel {
 }
 
 model Deal {
-  id            String       @id @default(cuid())
-  ownerId       String
-  title         String
+  id             String       @id @default(cuid())
+  ownerId        String
+  title          String
   /// Free text chosen in the editor; "" for drafts saved without one.
-  category      String       @default("")
+  category       String       @default("")
   /// Detected from affiliateUrl. Null only for drafts saved without a link.
-  marketplace   Marketplace?
-  affiliateUrl  String
-  imageUrls     String[]
+  marketplace    Marketplace?
+  affiliateUrl   String
+  imageUrls      String[]
   /// Prices in VND. Null only for drafts saved without a price.
-  price         Int?
-  originalPrice Int?
+  price          Int?
+  originalPrice  Int?
+  /// When price or originalPrice was last entered/changed. Null until a price is set.
+  priceCheckedAt DateTime?    @db.Timestamptz(3)
   /// In-app search code shoppers type on the marketplace (e.g. a Shopee keyword).
-  searchCode    String?
-  expiresAt     DateTime?    @db.Date
-  caption       String       @default("")
-  showOnBio     Boolean      @default(false)
-  status        DealStatus   @default(DRAFT)
+  searchCode     String?
+  expiresAt      DateTime?    @db.Date
+  caption        String       @default("")
+  showOnBio      Boolean      @default(false)
+  /// Owner's own short comment, shown on Bio as "Nhận xét của mình". "" when not set.
+  note           String       @default("")
+  /// Shown in "Deal hôm nay" on the Bio page (with a countdown to expiresAt).
+  isFeatured     Boolean      @default(false)
+  status         DealStatus   @default(DRAFT)
   /// Lowercased title + search code without Vietnamese diacritics, for search.
   /// Maintained by the app on every write (buildDealSearchText in src/lib/search-text.ts).
-  searchText    String       @default("")
-  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  searchText     String       @default("")
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
 
   owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   posts Post[]

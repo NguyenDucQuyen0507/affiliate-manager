@@ -130,6 +130,7 @@ function ChannelTargetRow({
 function BioRow() {
   const { control } = useFormContext<DealFormValues>();
   const { field } = useController({ control, name: "showOnBio" });
+  const featured = useController({ control, name: "isFeatured" });
 
   return (
     <div className={cn(rowClass, field.value && rowCheckedClass)}>
@@ -149,6 +150,18 @@ function BioRow() {
       <span className={cn("text-[13px]", field.value ? "text-muted-foreground" : "text-subtle")}>
         {field.value ? "Hiện ngay khi lưu" : "Chưa chọn"}
       </span>
+      {field.value && (
+        <div className="flex min-h-11 items-center gap-2.5 sm:col-span-2 sm:pl-[26px]">
+          <Checkbox
+            id="target-bio-featured"
+            checked={featured.field.value}
+            onCheckedChange={(value) => featured.field.onChange(value === true)}
+          />
+          <label htmlFor="target-bio-featured" className="text-sm font-medium">
+            Ghim vào mục &ldquo;Deal hôm nay&rdquo; (có đếm ngược tới ngày hết hạn)
+          </label>
+        </div>
+      )}
     </div>
   );
 }

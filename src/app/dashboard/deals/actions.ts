@@ -4,47 +4,94 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireAdmin } from "@/lib/auth-guard";
 import { dealFormSchema } from "@/lib/deal-schema";
-import { saveDealRecord } from "@/lib/deals";
+import { MAX_DEAL_IMAGES, isStoredImageUrl } from "@/lib/image-rules";
+import {
+  createDealRecord,
+  deleteDealRecord,
+  updateDealRecord,
+  type SaveDealOutcome,
+} from "@/lib/deals";
 
-export type SaveDealResult = { ok: true; dealId: string } | { ok: false; message: string };
+// Server Actions are public endpoints: each one starts with requireAdmin() and only
+// touches deals owned by that admin (the owner never comes from the client).
+
+export type SaveDealResult =
+  | { ok: true; dealId: string; publishedNow: number }
+  | { ok: false; message: string };
+export type DeleteDealResult = { ok: true } | { ok: false; message: string };
 
 const dealIdSchema = z.string().min(1).max(64);
 const imageUrlsSchema = z
-  .array(z.string().max(2000).regex(/^https?:\/\/\S+$/))
-  .max(10);
+  .array(z.string().max(2000).refine(isStoredImageUrl))
+  .max(MAX_DEAL_IMAGES);
 
-/**
- * Creates (dealId = null) or updates a deal and (re)schedules its posts.
- * `imageUrls` are already-hosted image URLs; uploading new files is not supported yet.
- */
-export async function saveDeal(
-  dealId: string | null,
+const INVALID = "Dữ liệu chưa hợp lệ, vui lòng kiểm tra lại các ô báo lỗi.";
+const NOT_FOUND = "Không tìm thấy deal này (404). Có thể deal đã bị xóa.";
+
+function parseInput(input: unknown, imageUrls: unknown) {
+  const values = dealFormSchema.safeParse(input);
+  const images = imageUrlsSchema.safeParse(imageUrls);
+  return values.success && images.success ? { values: values.data, images: images.data } : null;
+}
+
+function refreshDealPages() {
+  // Deals show up on every dashboard page (overview, list, schedule) and on Bio.
+  revalidatePath("/dashboard", "layout");
+  revalidatePath("/bio");
+}
+
+function toResult(outcome: SaveDealOutcome): SaveDealResult {
+  if (outcome.ok) {
+    refreshDealPages();
+    return outcome;
+  }
+  return {
+    ok: false,
+    message:
+      outcome.reason === "DEAL_NOT_FOUND"
+        ? NOT_FOUND
+        : "Có kênh đã bị ngắt kết nối. Hãy tải lại trang và chọn lại kênh.",
+  };
+}
+
+/** Creates a deal owned by the signed-in admin and schedules its posts. */
+export async function saveDeal(input: unknown, imageUrls: unknown): Promise<SaveDealResult> {
+  const admin = await requireAdmin();
+  const parsed = parseInput(input, imageUrls);
+  if (!parsed) return { ok: false, message: INVALID };
+  return toResult(await createDealRecord(admin.id, parsed.values, parsed.images));
+}
+
+/** Updates a deal of the signed-in admin (404 message for anyone else's deal). */
+export async function updateDeal(
+  dealId: unknown,
   input: unknown,
   imageUrls: unknown,
 ): Promise<SaveDealResult> {
-  // Server Actions are public endpoints: always check the session first.
   const admin = await requireAdmin();
+  const id = dealIdSchema.safeParse(dealId);
+  if (!id.success) return { ok: false, message: NOT_FOUND };
+  const parsed = parseInput(input, imageUrls);
+  if (!parsed) return { ok: false, message: INVALID };
+  return toResult(await updateDealRecord(admin.id, id.data, parsed.values, parsed.images));
+}
 
-  const values = dealFormSchema.safeParse(input);
-  const images = imageUrlsSchema.safeParse(imageUrls);
-  const id = dealId === null ? null : dealIdSchema.safeParse(dealId);
-  if (!values.success || !images.success || (id && !id.success)) {
-    return { ok: false, message: "Dữ liệu chưa hợp lệ, vui lòng kiểm tra lại các ô báo lỗi." };
-  }
+/** Deletes a deal of the signed-in admin and cancels its queued posts. */
+export async function deleteDeal(dealId: unknown): Promise<DeleteDealResult> {
+  const admin = await requireAdmin();
+  const id = dealIdSchema.safeParse(dealId);
+  if (!id.success) return { ok: false, message: NOT_FOUND };
 
-  const result = await saveDealRecord(admin.id, id?.data ?? null, values.data, images.data);
-  if (!result.ok) {
+  const outcome = await deleteDealRecord(admin.id, id.data);
+  if (!outcome.ok) {
     return {
       ok: false,
       message:
-        result.reason === "DEAL_NOT_FOUND"
-          ? "Không tìm thấy deal này. Có thể deal đã bị xóa."
-          : "Có kênh đã bị ngắt kết nối. Hãy tải lại trang và chọn lại kênh.",
+        outcome.reason === "DEAL_NOT_FOUND"
+          ? NOT_FOUND
+          : "Deal đang có bài được đăng lên kênh. Vui lòng đợi vài phút rồi xóa lại.",
     };
   }
-
-  // The deal shows up on every dashboard page and possibly on the Bio page.
-  revalidatePath("/dashboard", "layout");
-  revalidatePath("/bio");
-  return { ok: true, dealId: result.dealId };
+  refreshDealPages();
+  return { ok: true };
 }

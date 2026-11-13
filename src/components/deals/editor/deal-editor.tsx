@@ -1,28 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { saveDeal } from "@/app/dashboard/deals/actions";
+import { saveDeal, updateDeal } from "@/app/dashboard/deals/actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { buildCaptionTemplate } from "@/lib/deal-caption";
+import { formatShortDate, formatTime, nowInAppTimeZone } from "@/lib/format";
+import { recallDealTargets, rememberDealTargets } from "@/lib/last-deal-targets";
 import {
   dealFormSchema,
   getDealFormDefaults,
   type DealFormValues,
   type DealIntent,
 } from "@/lib/deal-schema";
-import { detectMarketplace, marketplaceLabel } from "@/lib/labels";
+import { detectMarketplace } from "@/lib/labels";
 import type { Channel, Deal, PostStatus } from "@/lib/types";
 import { ChannelTargets } from "./channel-targets";
+import { DeleteDealButton } from "./delete-deal-button";
 import { DealPreview } from "./deal-preview";
 import { ImagePicker, type EditorImage } from "./image-picker";
 import { PriceInput } from "./price-input";
@@ -48,32 +51,54 @@ export function DealEditor({
   });
   const { control, formState } = form;
   const [images, setImages] = useState<EditorImage[]>(
-    () => deal?.imageUrls.map((url) => ({ id: url, url, file: null })) ?? [],
+    () => deal?.imageUrls.map((url) => ({ id: url, url, uploading: false })) ?? [],
   );
   const [submitting, setSubmitting] = useState<DealIntent | null>(null);
+
+  // New deal: preselect the channels and times used for the last deal created in
+  // this browser. After mount, because localStorage does not exist on the server.
+  useEffect(() => {
+    if (isEdit) return;
+    const recalled = recallDealTargets(form.getValues("targets"));
+    if (!recalled) return;
+    form.setValue("targets", recalled.targets);
+    form.setValue("showOnBio", recalled.showOnBio);
+  }, [isEdit, form]);
 
   const postStatusByChannel: Record<string, PostStatus> = Object.fromEntries(
     deal?.posts.map((post) => [post.channelId, post.status]) ?? [],
   );
 
   function submit(intent: DealIntent) {
+    if (images.some((image) => image.uploading)) {
+      toast.info("Ảnh đang được tải lên, vui lòng đợi vài giây rồi lưu lại.");
+      return;
+    }
     form.setValue("intent", intent);
     void form.handleSubmit(
       async (values) => {
         setSubmitting(intent);
         try {
-          // Picked files are not uploaded yet (no storage provider); only hosted URLs are saved.
-          const imageUrls = images.filter((image) => !image.file).map((image) => image.url);
-          const result = await saveDeal(deal?.id ?? null, values, imageUrls);
+          const imageUrls = images.map((image) => image.url);
+          const result = deal
+            ? await updateDeal(deal.id, values, imageUrls)
+            : await saveDeal(values, imageUrls);
           if (result.ok) {
-            toast.success(intent === "draft" ? "Đã lưu nháp" : "Đã lên lịch đăng");
-            if (images.some((image) => image.file)) {
-              toast.warning("Ảnh chọn từ máy chưa được lưu", {
-                description: "Chưa cấu hình nơi lưu ảnh. Các ảnh này sẽ mất khi tải lại trang.",
+            if (intent === "publish") {
+              toast.success("Đã lưu deal và đưa bài vào hàng đợi đăng ngay", {
+                description: `${result.publishedNow} bài sẽ được đăng trong lượt kiểm tra hàng đợi kế tiếp.`,
+              });
+            } else {
+              toast.success("Đã lưu deal", {
+                description:
+                  intent === "draft"
+                    ? "Deal đang ở trạng thái nháp, chưa đăng lên kênh nào."
+                    : "Các bài đăng đã được đưa vào lịch đăng.",
               });
             }
+            if (!isEdit && intent !== "draft") rememberDealTargets(values);
             if (isEdit) {
-              form.reset(values);
+              form.reset(intent === "publish" ? withPublishedNow(values) : values);
               router.refresh();
             } else {
               // Keep editing the saved deal, so saving again does not create a duplicate.
@@ -92,25 +117,9 @@ export function DealEditor({
     )();
   }
 
-  function fetchProductInfo() {
-    const url = form.getValues("affiliateUrl").trim();
-    const marketplace = detectMarketplace(url);
-    if (!marketplace) {
-      form.setError("affiliateUrl", {
-        message: "Link phải là link Shopee, TikTok Shop hoặc Lazada",
-      });
-      return;
-    }
-    form.clearErrors("affiliateUrl");
-    // TODO: read name, images and price from the marketplace on the server.
-    toast.info(`Đã nhận diện link ${marketplaceLabel[marketplace]}`, {
-      description: "Chưa đọc được tên, ảnh và giá tự động. Vui lòng nhập tay.",
-    });
-  }
-
-  function insertCaptionTemplate() {
+  function generateCaption() {
     const values = form.getValues();
-    const template = buildCaptionTemplate({
+    const caption = buildCaptionTemplate({
       title: values.title,
       price: values.price,
       originalPrice: values.originalPrice,
@@ -118,11 +127,16 @@ export function DealEditor({
       searchCode: values.searchCode || null,
       marketplace: detectMarketplace(values.affiliateUrl),
     });
-    const current = values.caption.trim();
-    form.setValue("caption", current ? `${current}\n\n${template}` : template, {
-      shouldDirty: true,
-      shouldValidate: formState.isSubmitted,
-    });
+    const previous = values.caption;
+    const setCaption = (value: string) =>
+      form.setValue("caption", value, { shouldDirty: true, shouldValidate: formState.isSubmitted });
+    setCaption(caption);
+    form.setFocus("caption");
+    if (previous.trim() && previous !== caption) {
+      toast.info("Đã thay caption cũ bằng caption mới", {
+        action: { label: "Hoàn tác", onClick: () => setCaption(previous) },
+      });
+    }
   }
 
   const busy = submitting !== null;
@@ -143,9 +157,14 @@ export function DealEditor({
             </h1>
           </div>
           <div className="flex flex-wrap gap-2.5">
+            {deal && <DeleteDealButton dealId={deal.id} disabled={busy} />}
             <Button type="button" variant="outline" size="touch" disabled={busy} onClick={() => submit("draft")}>
               {submitting === "draft" && <Loader2 className="animate-spin" aria-hidden="true" />}
               Lưu nháp
+            </Button>
+            <Button type="button" variant="soft" size="touch" disabled={busy} onClick={() => submit("publish")}>
+              {submitting === "publish" && <Loader2 className="animate-spin" aria-hidden="true" />}
+              Lưu & đăng ngay
             </Button>
             <Button type="button" size="touch" disabled={busy} onClick={() => submit("schedule")}>
               {submitting === "schedule" && <Loader2 className="animate-spin" aria-hidden="true" />}
@@ -168,22 +187,17 @@ export function DealEditor({
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
                     <FieldLabel htmlFor="deal-url">Link affiliate</FieldLabel>
-                    <div className="flex flex-wrap gap-2.5">
-                      <Input
-                        {...field}
-                        id="deal-url"
-                        type="url"
-                        placeholder="https://s.shopee.vn/..."
-                        aria-invalid={fieldState.invalid}
-                        className="min-w-0 flex-[1_1_280px]"
-                      />
-                      <Button type="button" variant="soft" size="touch" className="px-4" onClick={fetchProductInfo}>
-                        Lấy thông tin tự động
-                      </Button>
-                    </div>
+                    <Input
+                      {...field}
+                      id="deal-url"
+                      type="url"
+                      placeholder="https://s.shopee.vn/..."
+                      autoComplete="off"
+                      aria-invalid={fieldState.invalid}
+                    />
                     <FieldError errors={[fieldState.error]} />
                     <FieldDescription>
-                      Dán link Shopee, TikTok Shop hoặc Lazada. Hệ thống điền sẵn tên, ảnh và giá nếu đọc được.
+                      Link Shopee bắt đầu bằng https://s.shopee.vn/ hoặc https://shope.ee/. Cũng nhận link TikTok Shop và Lazada.
                     </FieldDescription>
                   </Field>
                 )}
@@ -241,6 +255,11 @@ export function DealEditor({
                         aria-invalid={fieldState.invalid}
                       />
                       <FieldError errors={[fieldState.error]} />
+                      {deal?.priceCheckedAt && (
+                        <FieldDescription>
+                          Giá cập nhật lúc {formatTime(deal.priceCheckedAt)} ngày {formatShortDate(deal.priceCheckedAt)}
+                        </FieldDescription>
+                      )}
                     </Field>
                   )}
                 />
@@ -297,7 +316,7 @@ export function DealEditor({
                 <span id="deal-images-label" className="text-sm font-semibold">
                   Ảnh sản phẩm
                 </span>
-                <ImagePicker images={images} onChange={setImages} />
+                <ImagePicker images={images} setImages={setImages} />
               </div>
             </Card>
 
@@ -307,8 +326,8 @@ export function DealEditor({
                 <h2 id="deal-s2" className={sectionTitleClass}>
                   2. Nội dung bài đăng
                 </h2>
-                <Button type="button" variant="outline" size="row" onClick={insertCaptionTemplate}>
-                  Chèn mẫu caption
+                <Button type="button" variant="outline" size="row" onClick={generateCaption}>
+                  Tạo caption
                 </Button>
               </div>
               <Controller
@@ -327,6 +346,28 @@ export function DealEditor({
                     <FieldError errors={[fieldState.error]} />
                     <FieldDescription>
                       Facebook không gắn link trong bài. Link sẽ tự được đăng vào bình luận ghim.
+                    </FieldDescription>
+                  </Field>
+                )}
+              />
+              <Controller
+                name="note"
+                control={control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="deal-note">Nhận xét của mình (tùy chọn)</FieldLabel>
+                    <Textarea
+                      {...field}
+                      id="deal-note"
+                      rows={2}
+                      maxLength={280}
+                      placeholder="VD: Vải dày, không xuyên. Bạn dưới 50kg lấy size S nhé."
+                      className="min-h-[72px] resize-y"
+                      aria-invalid={fieldState.invalid}
+                    />
+                    <FieldError errors={[fieldState.error]} />
+                    <FieldDescription>
+                      Chỉ hiện trên trang Bio, không đăng lên Facebook hay Telegram. Tối đa 280 ký tự.
                     </FieldDescription>
                   </Field>
                 )}
@@ -360,4 +401,15 @@ export function DealEditor({
       </form>
     </FormProvider>
   );
+}
+
+/** Form values after "Lưu & đăng ngay": the chosen, unsent channels now show the current time. */
+function withPublishedNow(values: DealFormValues): DealFormValues {
+  const now = nowInAppTimeZone().dateTime;
+  return {
+    ...values,
+    targets: values.targets.map((target) =>
+      target.enabled && !target.locked ? { ...target, scheduledAt: now } : target,
+    ),
+  };
 }

@@ -10,6 +10,7 @@ import { ScheduleTabs } from "@/components/schedule/schedule-tabs";
 import { ProductThumbnail } from "@/components/product-thumbnail";
 import { formatDayHeading, formatRelativeDateTime, formatTime, todayKey } from "@/lib/format";
 import { channelDisplayName, channelTypeLabel } from "@/lib/labels";
+import { requireAdmin } from "@/lib/auth-guard";
 import { getPostCounts, getPostsByStatus, type QueuePost } from "@/lib/posts";
 import { parseScheduleTab, scheduleTabs } from "@/lib/schedule-tabs";
 import { postStatusMeta } from "@/lib/status";
@@ -45,12 +46,13 @@ async function ScheduleView({
   const tab = parseScheduleTab((await searchParams).tab);
   // Render at request time: "today" and the queue change every minute.
   await connection();
+  const admin = await requireAdmin();
   const status = scheduleTabs.find((t) => t.value === tab)!.status;
   const today = todayKey();
   const [counts, failed, posts] = await Promise.all([
-    getPostCounts(),
-    getPostsByStatus("FAILED"),
-    tab === "failed" ? Promise.resolve([]) : getPostsByStatus(status),
+    getPostCounts(admin.id),
+    getPostsByStatus(admin.id, "FAILED"),
+    tab === "failed" ? Promise.resolve([]) : getPostsByStatus(admin.id, status),
   ]);
 
   // Failures need attention, so they stay on top of the upcoming queue as well.

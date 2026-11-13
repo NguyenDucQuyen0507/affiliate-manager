@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProductThumbnail } from "@/components/product-thumbnail";
 import { Badge } from "@/components/ui/badge";
@@ -29,7 +30,9 @@ export function DealTable({
   filters: DealFilters;
 }) {
   const { deals, total, page, pageCount, pageSize } = result;
-  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  if (total === 0) return <EmptyState filtered={hasActiveFilters(filters)} />;
+
+  const from = (page - 1) * pageSize + 1;
   const to = (page - 1) * pageSize + deals.length;
 
   return (
@@ -47,15 +50,9 @@ export function DealTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {deals.length === 0 ? (
-            <TableRow className="border-t border-b-0 border-muted-track hover:bg-transparent">
-              <TableCell colSpan={7} className="px-5 py-10 text-center text-muted-foreground">
-                Không tìm thấy deal nào phù hợp.
-              </TableCell>
-            </TableRow>
-          ) : (
-            deals.map((deal) => <DealRow key={deal.id} deal={deal} />)
-          )}
+          {deals.map((deal) => (
+            <DealRow key={deal.id} deal={deal} />
+          ))}
         </TableBody>
       </Table>
 
@@ -170,5 +167,38 @@ function PageButton({
         {children}
       </Link>
     </Button>
+  );
+}
+
+function hasActiveFilters(filters: DealFilters) {
+  return filters.status !== "ALL" || filters.marketplace !== "ALL" || filters.q !== "";
+}
+
+/** No deals at all, or none matching the current filters. */
+function EmptyState({ filtered }: { filtered: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border bg-card px-6 py-14 text-center">
+      <h2 className="font-heading text-lg font-semibold">
+        {filtered ? "Không tìm thấy deal nào phù hợp" : "Chưa có deal nào"}
+      </h2>
+      <p className="max-w-md text-sm text-muted-foreground">
+        {filtered
+          ? "Thử từ khóa khác, chọn sàn khác hoặc xóa bộ lọc."
+          : "Tạo deal đầu tiên: dán link affiliate, viết caption và chọn kênh để lên lịch đăng."}
+      </p>
+      <div className="mt-3 flex flex-wrap justify-center gap-2.5">
+        {filtered && (
+          <Button asChild variant="outline" size="touch">
+            <Link href="/dashboard/deals">Xóa bộ lọc</Link>
+          </Button>
+        )}
+        <Button asChild size="touch">
+          <Link href="/dashboard/deals/new">
+            <Plus strokeWidth={2.2} aria-hidden="true" />
+            Tạo deal mới
+          </Link>
+        </Button>
+      </div>
+    </div>
   );
 }

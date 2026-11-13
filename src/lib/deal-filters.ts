@@ -3,7 +3,7 @@
 import { MARKETPLACES } from "@/lib/labels";
 import type { DealStatus, Marketplace } from "@/lib/types";
 
-export const DEALS_PAGE_SIZE = 6;
+export const DEALS_PAGE_SIZE = 10;
 
 export type DealStatusFilter = "ALL" | DealStatus;
 export type MarketplaceFilter = "ALL" | Marketplace;

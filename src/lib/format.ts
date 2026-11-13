@@ -117,6 +117,12 @@ function relativeDay(dateKey: string, today: string | null) {
   return null;
 }
 
+/** "2026-11-13T14:00" → "14:00 hôm nay", "14:00 hôm qua", or "14:00 12/11". */
+export function formatTimeThenDay(localDateTime: string, today: string | null) {
+  const date = localDateTime.slice(0, 10);
+  return `${formatTime(localDateTime)} ${relativeDay(date, today)?.toLowerCase() ?? formatShortDate(date)}`;
+}
+
 /** Day group heading: "Hôm nay · Thứ Năm 12/11", or "Thứ Bảy 14/11". */
 export function formatDayHeading(dateKey: string, today: string | null) {
   const day = `${weekdayLabel(dateKey)} ${formatShortDate(dateKey)}`;

@@ -1,5 +1,6 @@
 // Post queue data access (server-only, Prisma).
-// TODO: scope every query to the signed-in user's posts once auth exists.
+// Read queries take the signed-in admin's id and only see posts of that user's deals.
+// TODO: scope the queue mutations below the same way.
 
 import "server-only";
 import type { Prisma, PostStatus as DbPostStatus } from "@/generated/prisma/client";
@@ -50,27 +51,31 @@ function toQueuePost(row: QueueRow): QueuePost {
 }
 
 /** Pending posts oldest-first (queue order); published/failed newest-first. */
-export async function getPostsByStatus(status: PostStatus): Promise<QueuePost[]> {
+export async function getPostsByStatus(ownerId: string, status: PostStatus): Promise<QueuePost[]> {
   const rows = await getDb().post.findMany({
-    where: { status: { in: dbStatusesFor(status) } },
+    where: { deal: { ownerId }, status: { in: dbStatusesFor(status) } },
     include: queueInclude,
     orderBy: [{ scheduledAt: status === "PENDING" ? "asc" : "desc" }, { id: "asc" }],
   });
   return rows.map(toQueuePost);
 }
 
-export async function getPostCounts(): Promise<Record<PostStatus, number>> {
-  const grouped = await getDb().post.groupBy({ by: ["status"], _count: { _all: true } });
+export async function getPostCounts(ownerId: string): Promise<Record<PostStatus, number>> {
+  const grouped = await getDb().post.groupBy({
+    by: ["status"],
+    where: { deal: { ownerId } },
+    _count: { _all: true },
+  });
   const counts: Record<PostStatus, number> = { PENDING: 0, PUBLISHED: 0, FAILED: 0 };
   for (const group of grouped) counts[toUiPostStatus(group.status)] += group._count._all;
   return counts;
 }
 
 /** All posts scheduled on an app-local date (YYYY-MM-DD), in time order. */
-export async function getPostsOnDate(date: string): Promise<QueuePost[]> {
+export async function getPostsOnDate(ownerId: string, date: string): Promise<QueuePost[]> {
   const { start, end } = appDayRange(date);
   const rows = await getDb().post.findMany({
-    where: { scheduledAt: { gte: start, lt: end } },
+    where: { deal: { ownerId }, scheduledAt: { gte: start, lt: end } },
     include: queueInclude,
     orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
   });

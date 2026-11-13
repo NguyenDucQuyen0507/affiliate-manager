@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Deal" ADD COLUMN     "isFeatured" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "note" TEXT NOT NULL DEFAULT '';

@@ -17,7 +17,7 @@ UI copy is Vietnamese (as in the mockups). Code, identifiers and comments are En
 | `DealEditor.dc.html` | `/dashboard/deals/new`, `/dashboard/deals/[id]` | Deal form (3 sections) + live preview tabs (Facebook / Telegram / Bio) |
 | `Schedule.dc.html` | `/dashboard/schedule` | Post queue grouped by day, failed-posts panel with error reason + retry |
 | `Channels.dc.html` | `/dashboard/channels` | Channel cards (Facebook pages, Telegram, Bio link) with status + test post |
-| `Bio.dc.html` | `/bio` (public, mobile-first) | Public deal list with category chips, "Mua ngay", "Sao chép mã", affiliate disclosure |
+| `Bio.dc.html` | `/bio` (public, mobile-first) | Search, category chips, sort/filter chips (biggest discount, under 200k, expiring soon, newest), "Deal hôm nay" featured card with countdown, per-deal personal note, discount badge, "price checked at", copy-code button, Telegram follow block, affiliate disclosure |
 
 All `/dashboard/*` routes share one layout: dark sidebar (232px) + content area.
 On narrow screens the sidebar stacks above the content (or becomes a Sheet).
@@ -83,4 +83,8 @@ Telegram `Send`.
   (`PENDING`, `PUBLISHED`, `FAILED`); failed posts show a human-readable reason and a retry action.
 - Channel tokens live only on the server (encrypted). The UI never displays them.
 - Bio page shows only deals that are active and opted in to Bio; footer keeps the affiliate disclosure.
+- Deal has an optional short `note` (owner's own comment, shown as "Nhận xét của mình") and an
+  `isFeatured` flag (shown in "Deal hôm nay" with a countdown to `expiresAt`).
+- Show `priceCheckedAt` on the Bio page ("giá kiểm tra lúc …"); never show stale prices without it.
+- Do not scrape marketplace pages; deal data is entered manually from the Shopee Affiliate portal.
 - Data in the mockups is sample data; fetch real data from the database.

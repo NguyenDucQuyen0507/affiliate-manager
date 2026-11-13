@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Deal" ALTER COLUMN "category" SET DEFAULT '',
+ALTER COLUMN "marketplace" DROP NOT NULL,
+ALTER COLUMN "price" DROP NOT NULL;
+

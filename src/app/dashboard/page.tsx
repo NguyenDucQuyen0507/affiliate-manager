@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/dashboard/page-header";
+import { ProductThumbnail } from "@/components/product-thumbnail";
 import { RetryButton } from "@/components/schedule/post-actions";
 import { getBioPageStatus, getChannels } from "@/lib/channels";
 import { getDealStats } from "@/lib/deals";
@@ -179,7 +180,7 @@ type TimelineRowData = {
   dealTitle: string;
   channelLabel: string;
   status: QueuePost["status"];
-  thumbnailColor: string;
+  imageUrl: string | null;
 };
 
 /** One row per deal × time × status, listing every channel it goes to. */
@@ -197,7 +198,7 @@ function mergeTimelineRows(posts: QueuePost[]): TimelineRowData[] {
         dealTitle: post.dealTitle,
         channelLabel: channelDisplayName(post.channel),
         status: post.status,
-        thumbnailColor: post.thumbnailColor,
+        imageUrl: post.imageUrl,
       });
     }
   }
@@ -209,7 +210,7 @@ function TimelineRow({ row }: { row: TimelineRowData }) {
   return (
     <li className="grid grid-cols-[48px_48px_minmax(0,1fr)_auto] items-center gap-3.5 border-t border-muted py-3 sm:grid-cols-[64px_48px_minmax(0,1fr)_auto]">
       <span className="text-sm font-semibold text-muted-foreground tabular-nums">{row.time}</span>
-      <div className="size-12 rounded-lg" style={{ backgroundColor: row.thumbnailColor }} aria-hidden="true" />
+      <ProductThumbnail url={row.imageUrl} sizes="48px" className="size-12 rounded-lg" />
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-sm font-semibold sm:truncate">{row.dealTitle}</span>
         <span className="text-[13px] text-muted-foreground sm:truncate">{row.channelLabel}</span>
@@ -225,7 +226,7 @@ function FailedPostCard({ post, today }: { post: QueuePost; today: string }) {
     <div className="flex flex-col gap-2 rounded-lg bg-danger-soft p-3.5">
       <span className="text-sm font-semibold">{post.dealTitle}</span>
       <span className="text-[13px] text-danger-strong">
-        {channelTypeLabel[post.channel.type]}: {post.errorReason ?? "Đăng không thành công"}
+        {channelTypeLabel[post.channel.type]}: {post.errorMessage ?? "Đăng không thành công"}
       </span>
       <span className="sr-only">Thời gian: {formatRelativeDateTime(post.scheduledAt, today)}</span>
       <div className="flex flex-wrap gap-2">

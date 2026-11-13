@@ -1,0 +1,145 @@
+// Data model for Affiliate Manager. See docs/design/DESIGN.md → "Behaviour notes".
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  EDITOR
+}
+
+enum Marketplace {
+  SHOPEE
+  TIKTOK_SHOP
+  LAZADA
+}
+
+enum ChannelType {
+  FACEBOOK
+  TELEGRAM
+}
+
+/// DISCONNECTED channels are kept so post history still resolves their name.
+enum ChannelStatus {
+  ACTIVE
+  NEEDS_RECONNECT
+  DISCONNECTED
+}
+
+enum DealStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+}
+
+enum PostStatus {
+  PENDING
+  /// claimed by a worker, in progress
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  /// bcrypt/argon2 hash. Never returned to the client.
+  passwordHash String
+  role         UserRole @default(ADMIN)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  channels Channel[]
+  deals    Deal[]
+}
+
+/// A connected Facebook Page or Telegram channel.
+model Channel {
+  id                   String        @id @default(cuid())
+  ownerId              String
+  type                 ChannelType
+  name                 String
+  status               ChannelStatus @default(ACTIVE)
+  /// Facebook Page id or Telegram chat id / @username.
+  externalId           String?
+  /// Telegram bot handle, e.g. "@deal_bot". Null for Facebook.
+  botUsername          String?
+  /// Page access token / bot token, encrypted by the app. Never sent to the browser;
+  /// omitted from every query by default (see src/lib/db.ts).
+  accessTokenEncrypted String?
+  createdAt            DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime      @updatedAt @db.Timestamptz(3)
+
+  owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  posts Post[]
+
+  @@unique([type, externalId])
+  @@index([ownerId])
+}
+
+model Deal {
+  id            String       @id @default(cuid())
+  ownerId       String
+  title         String
+  /// Free text chosen in the editor; "" for drafts saved without one.
+  category      String       @default("")
+  /// Detected from affiliateUrl. Null only for drafts saved without a link.
+  marketplace   Marketplace?
+  affiliateUrl  String
+  imageUrls     String[]
+  /// Prices in VND. Null only for drafts saved without a price.
+  price         Int?
+  originalPrice Int?
+  /// In-app search code shoppers type on the marketplace (e.g. a Shopee keyword).
+  searchCode    String?
+  expiresAt     DateTime?    @db.Date
+  caption       String       @default("")
+  showOnBio     Boolean      @default(false)
+  status        DealStatus   @default(DRAFT)
+  /// Lowercased title + search code without Vietnamese diacritics, for search.
+  /// Maintained by the app on every write (buildDealSearchText in src/lib/search-text.ts).
+  searchText    String       @default("")
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+
+  owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  posts Post[]
+
+  @@index([ownerId, status])
+  @@index([status, showOnBio])
+}
+
+/// One deal × channel publication, with its own schedule and status.
+model Post {
+  id                String     @id @default(cuid())
+  dealId            String
+  channelId         String
+  scheduledAt       DateTime   @db.Timestamptz(3)
+  status            PostStatus @default(PENDING)
+  /// Human-readable reason, set when status is FAILED.
+  errorMessage      String?
+  publishedAt       DateTime?  @db.Timestamptz(3)
+  /// Id of the published post/message on the platform (for the pinned comment, edits).
+  externalPostId    String?
+  /// Id of the pinned comment (Facebook). If externalPostId is set but this is null, a retry only posts the comment.
+  externalCommentId String?
+  attempts          Int        @default(0)
+  lockedAt          DateTime?  @db.Timestamptz(3)
+  createdAt         DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime   @updatedAt @db.Timestamptz(3)
+
+  deal    Deal    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: NoAction)
+
+  @@index([dealId])
+  /// The queue worker polls PENDING posts by time.
+  @@index([status, scheduledAt])
+  @@index([channelId])
+}

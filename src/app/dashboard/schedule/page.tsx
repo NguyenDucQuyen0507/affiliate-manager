@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
+import { connection } from "next/server";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PendingPostActions, RetryAllButton, RetryButton } from "@/components/schedule/post-actions";
 import { ScheduleTabs } from "@/components/schedule/schedule-tabs";
+import { ProductThumbnail } from "@/components/product-thumbnail";
 import { formatDayHeading, formatRelativeDateTime, formatTime, todayKey } from "@/lib/format";
 import { channelDisplayName, channelTypeLabel } from "@/lib/labels";
 import { getPostCounts, getPostsByStatus, type QueuePost } from "@/lib/posts";
@@ -41,6 +43,8 @@ async function ScheduleView({
   searchParams: PageProps<"/dashboard/schedule">["searchParams"];
 }) {
   const tab = parseScheduleTab((await searchParams).tab);
+  // Render at request time: "today" and the queue change every minute.
+  await connection();
   const status = scheduleTabs.find((t) => t.value === tab)!.status;
   const today = todayKey();
   const [counts, failed, posts] = await Promise.all([
@@ -124,7 +128,7 @@ function FailedPanel({ posts, today }: { posts: QueuePost[]; today: string }) {
             </span>
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-semibold">{postLabel(post)}</span>
-              {post.errorReason && <span className="text-[13px] text-danger-strong">{post.errorReason}</span>}
+              {post.errorMessage && <span className="text-[13px] text-danger-strong">{post.errorMessage}</span>}
             </div>
             <div className="sm:justify-self-end">
               <RetryButton postId={post.id} label={postLabel(post)} />
@@ -164,11 +168,7 @@ function DayGroup({
                 className="grid grid-cols-[70px_44px_minmax(0,1fr)_200px_110px_auto] items-center gap-4 border-b border-muted px-4 py-3.5 last:border-b-0 sm:px-6"
               >
                 <span className="text-[15px] font-bold tabular-nums">{formatTime(post.scheduledAt)}</span>
-                <div
-                  className="size-11 rounded-md"
-                  style={{ backgroundColor: post.thumbnailColor }}
-                  aria-hidden="true"
-                />
+                <ProductThumbnail url={post.imageUrl} sizes="44px" className="size-11 rounded-md" />
                 <Link
                   href={`/dashboard/deals/${post.dealId}`}
                   className="truncate text-sm font-semibold hover:text-primary hover:underline"

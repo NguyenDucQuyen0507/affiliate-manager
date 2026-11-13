@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import Image from "next/image";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { ProductThumbnail } from "@/components/product-thumbnail";
 import { Button } from "@/components/ui/button";
 import type { BioDeal } from "@/lib/bio";
 import { formatPrice, formatShortDate } from "@/lib/format";
@@ -89,14 +89,11 @@ function BioDealCard({ deal }: { deal: BioDeal }) {
 
   return (
     <article className="flex h-full overflow-hidden rounded-2xl border border-bio-border bg-card lg:flex-col">
-      <div
-        className="relative w-28 flex-none lg:aspect-[4/3] lg:w-full"
-        style={deal.imageUrl ? undefined : { backgroundColor: deal.thumbnailColor }}
-      >
-        {deal.imageUrl && (
-          <Image src={deal.imageUrl} alt="" fill unoptimized sizes="(min-width: 1024px) 320px, 112px" className="object-cover" />
-        )}
-      </div>
+      <ProductThumbnail
+        url={deal.imageUrl}
+        sizes="(min-width: 1024px) 320px, 112px"
+        className="w-28 lg:aspect-[4/3] lg:w-full"
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 px-3.5 py-3 lg:gap-2 lg:p-4">
         <h2 className="text-[15px] leading-snug font-bold lg:text-base">{deal.title}</h2>
         <p className="text-sm">

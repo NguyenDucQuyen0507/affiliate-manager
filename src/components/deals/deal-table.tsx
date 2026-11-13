@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { ProductThumbnail } from "@/components/product-thumbnail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,26 +88,24 @@ function DealRow({ deal }: { deal: DealListItem }) {
     <TableRow className="border-t border-b-0 border-muted-track">
       <TableCell className={cn(cellClass, "pl-5")}>
         <div className="flex items-center gap-3">
-          <div
-            className="size-11 flex-none rounded-md"
-            style={{ backgroundColor: deal.thumbnailColor }}
-            aria-hidden="true"
-          />
+          <ProductThumbnail url={deal.imageUrls[0] ?? null} sizes="44px" className="size-11 rounded-md" />
           <div className="flex flex-col gap-0.5">
             <span className={cn("font-semibold", dimText)}>{deal.title}</span>
             <span className="text-[13px] text-muted-foreground">
-              {deal.category} ·{" "}
+              {deal.category && `${deal.category} · `}
               {deal.expiresAt ? `hết hạn ${formatShortDate(deal.expiresAt)}` : "chưa đặt hạn"}
             </span>
           </div>
         </div>
       </TableCell>
       <TableCell className={cn(cellClass, dimText)}>
-        {marketplaceLabel[deal.marketplace]}
+        {deal.marketplace ? marketplaceLabel[deal.marketplace] : "—"}
       </TableCell>
       <TableCell className={cellClass}>
         <div className="flex flex-col">
-          <span className={cn("font-semibold", dimText)}>{formatPrice(deal.price)}</span>
+          <span className={cn("font-semibold", dimText)}>
+            {deal.price !== null ? formatPrice(deal.price) : "—"}
+          </span>
           {deal.originalPrice !== null && (
             <span className="text-[13px] text-muted-foreground line-through">
               {formatPrice(deal.originalPrice)}

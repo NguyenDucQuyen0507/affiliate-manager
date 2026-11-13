@@ -28,6 +28,7 @@ export const dealFormSchema = z
     intent: z.enum(dealIntents),
     affiliateUrl: z.string().trim().max(2000),
     title: z.string().trim().min(1, "Nhập tên sản phẩm").max(200, "Tên tối đa 200 ký tự"),
+    category: z.string().trim().max(50, "Danh mục tối đa 50 ký tự"),
     price: z.number().int().positive("Giá phải lớn hơn 0").nullable(),
     originalPrice: z.number().int().positive("Giá phải lớn hơn 0").nullable(),
     searchCode: z
@@ -54,6 +55,7 @@ export const dealFormSchema = z
     if (values.intent !== "schedule") return;
 
     if (!values.affiliateUrl) issue(["affiliateUrl"], "Dán link affiliate để lên lịch đăng");
+    if (!values.category) issue(["category"], "Nhập danh mục để hiện trên trang Bio");
     if (!values.price) issue(["price"], "Nhập giá khuyến mãi");
     if (!values.caption.trim()) issue(["caption"], "Nhập caption cho bài đăng");
 
@@ -79,6 +81,7 @@ export function getDealFormDefaults(channels: Channel[], deal?: Deal | null): De
     intent: "draft",
     affiliateUrl: deal?.affiliateUrl ?? "",
     title: deal?.title ?? "",
+    category: deal?.category ?? "",
     price: deal?.price ?? null,
     originalPrice: deal?.originalPrice ?? null,
     searchCode: deal?.searchCode ?? "",
@@ -86,7 +89,9 @@ export function getDealFormDefaults(channels: Channel[], deal?: Deal | null): De
     caption: deal?.caption ?? "",
     showOnBio: deal?.showOnBio ?? false,
     targets: channels.map((channel) => {
-      const post = deal?.posts.find((p) => p.channelId === channel.id);
+      // Prefer the post that can still change; otherwise show the latest one sent.
+      const posts = deal?.posts.filter((p) => p.channelId === channel.id) ?? [];
+      const post = posts.find((p) => p.status !== "PUBLISHED") ?? posts.at(-1);
       return {
         channelId: channel.id,
         enabled: Boolean(post),

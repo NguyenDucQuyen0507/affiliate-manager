@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Controller, FormProvider, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
@@ -29,8 +30,18 @@ import { PriceInput } from "./price-input";
 const sectionClass = "gap-[18px] p-4 sm:p-6";
 const sectionTitleClass = "font-heading text-lg font-semibold";
 
-export function DealEditor({ deal, channels }: { deal: Deal | null; channels: Channel[] }) {
+export function DealEditor({
+  deal,
+  channels,
+  categories,
+}: {
+  deal: Deal | null;
+  channels: Channel[];
+  /** Categories already in use, suggested in the "Danh mục" field. */
+  categories: string[];
+}) {
   const isEdit = deal !== null;
+  const router = useRouter();
   const form = useForm<DealFormValues>({
     resolver: zodResolver(dealFormSchema),
     defaultValues: getDealFormDefaults(channels, deal),
@@ -51,10 +62,23 @@ export function DealEditor({ deal, channels }: { deal: Deal | null; channels: Ch
       async (values) => {
         setSubmitting(intent);
         try {
-          const result = await saveDeal(deal?.id ?? null, values);
+          // Picked files are not uploaded yet (no storage provider); only hosted URLs are saved.
+          const imageUrls = images.filter((image) => !image.file).map((image) => image.url);
+          const result = await saveDeal(deal?.id ?? null, values, imageUrls);
           if (result.ok) {
             toast.success(intent === "draft" ? "Đã lưu nháp" : "Đã lên lịch đăng");
-            form.reset(values);
+            if (images.some((image) => image.file)) {
+              toast.warning("Ảnh chọn từ máy chưa được lưu", {
+                description: "Chưa cấu hình nơi lưu ảnh. Các ảnh này sẽ mất khi tải lại trang.",
+              });
+            }
+            if (isEdit) {
+              form.reset(values);
+              router.refresh();
+            } else {
+              // Keep editing the saved deal, so saving again does not create a duplicate.
+              router.replace(`/dashboard/deals/${result.dealId}`);
+            }
           } else {
             toast.error(result.message);
           }
@@ -174,6 +198,30 @@ export function DealEditor({ deal, channels }: { deal: Deal | null; channels: Ch
                       <FieldLabel htmlFor="deal-title">Tên sản phẩm</FieldLabel>
                       <Input {...field} id="deal-title" aria-invalid={fieldState.invalid} />
                       <FieldError errors={[fieldState.error]} />
+                    </Field>
+                  )}
+                />
+                <Controller
+                  name="category"
+                  control={control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid} className="sm:col-span-2">
+                      <FieldLabel htmlFor="deal-category">Danh mục</FieldLabel>
+                      <Input
+                        {...field}
+                        id="deal-category"
+                        list="deal-category-options"
+                        autoComplete="off"
+                        placeholder="VD: Mẹ và bé"
+                        aria-invalid={fieldState.invalid}
+                      />
+                      <datalist id="deal-category-options">
+                        {categories.map((category) => (
+                          <option key={category} value={category} />
+                        ))}
+                      </datalist>
+                      <FieldError errors={[fieldState.error]} />
+                      <FieldDescription>Dùng để lọc deal trên trang Bio.</FieldDescription>
                     </Field>
                   )}
                 />
@@ -306,7 +354,6 @@ export function DealEditor({ deal, channels }: { deal: Deal | null; channels: Ch
               control={control}
               channels={channels}
               images={images}
-              placeholderColor={deal?.thumbnailColor ?? null}
             />
           </Card>
         </div>

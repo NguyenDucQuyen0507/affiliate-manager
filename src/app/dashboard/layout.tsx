@@ -1,5 +1,5 @@
 import { DesktopSidebar, MobileTopBar } from "@/components/dashboard/sidebar";
-import { currentUser } from "@/lib/sample-data/dashboard";
+import { currentUser } from "@/lib/sample-data/account";
 
 export default function DashboardLayout({ children }: LayoutProps<"/dashboard">) {
   return (

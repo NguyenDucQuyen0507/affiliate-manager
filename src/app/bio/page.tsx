@@ -6,7 +6,7 @@ import { BioDealList } from "@/components/bio/bio-deal-list";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getBioPage } from "@/lib/bio";
 import { todayKey } from "@/lib/format";
-import { bioProfile } from "@/lib/sample-data/dashboard";
+import { bioProfile } from "@/lib/sample-data/account";
 
 // TODO: read the profile from the database (generateMetadata) once it exists.
 export const metadata: Metadata = {

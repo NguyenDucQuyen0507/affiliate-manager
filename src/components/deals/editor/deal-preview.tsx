@@ -1,8 +1,8 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import Image from "next/image";
 import { useWatch, type Control } from "react-hook-form";
+import { ProductThumbnail } from "@/components/product-thumbnail";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { DealFormValues } from "@/lib/deal-schema";
 import { formatPrice, formatScheduleLabel, formatShortDate, formatTime, todayKey } from "@/lib/format";
@@ -24,12 +24,10 @@ export function DealPreview({
   control,
   channels,
   images,
-  placeholderColor,
 }: {
   control: Control<DealFormValues>;
   channels: Channel[];
   images: EditorImage[];
-  placeholderColor: string | null;
 }) {
   const values = useWatch({ control }) as DealFormValues;
   const today = useToday();
@@ -71,7 +69,7 @@ export function DealPreview({
             </div>
           </div>
           <Caption text={values.caption} className="px-3.5 pb-3" />
-          <PreviewImage url={imageUrl} color={placeholderColor} className="h-[260px]" />
+          <ProductThumbnail url={imageUrl} sizes="400px" className="h-[260px]" />
           <div className="flex gap-2.5 border-t border-muted-track bg-table-head px-3.5 py-3">
             <PageAvatar name={fb.channel?.name ?? "F"} className="size-8 flex-none" />
             <div className="flex min-w-0 flex-col gap-0.5 rounded-[12px] bg-muted px-3 py-2">
@@ -91,7 +89,7 @@ export function DealPreview({
         {!tg.selected && <PreviewNote>Chưa chọn kênh Telegram. Đây là bản xem thử.</PreviewNote>}
         <div className="rounded-[12px] bg-preview-telegram p-4">
           <div className="max-w-[340px] overflow-hidden rounded-[12px] bg-card">
-            <PreviewImage url={imageUrl} color={placeholderColor} className="h-[220px]" />
+            <ProductThumbnail url={imageUrl} sizes="340px" className="h-[220px]" />
             <div className="flex flex-col gap-1.5 px-3 py-2.5">
               <span className="text-sm font-bold">{title}</span>
               <PriceLine values={values} />
@@ -116,7 +114,7 @@ export function DealPreview({
         {!values.showOnBio && <PreviewNote>Deal này chưa bật hiện trên trang Bio link.</PreviewNote>}
         <div className="rounded-[12px] bg-bio-background p-4">
           <div className="flex overflow-hidden rounded-xl border border-bio-border bg-card">
-            <PreviewImage url={imageUrl} color={placeholderColor} className="w-[110px] flex-none" />
+            <ProductThumbnail url={imageUrl} sizes="110px" className="w-[110px]" />
             <div className="flex min-w-0 flex-col gap-1.5 px-3.5 py-3">
               <span className="text-sm font-bold">{title}</span>
               <span className="text-sm">
@@ -162,25 +160,6 @@ function Caption({ text, className }: { text: string; className?: string }) {
     <p className={`text-sm leading-[1.55] whitespace-pre-line ${className ?? ""}`}>
       {text.trim() || <span className="text-subtle">Caption sẽ hiện ở đây.</span>}
     </p>
-  );
-}
-
-function PreviewImage({
-  url,
-  color,
-  className,
-}: {
-  url: string | null;
-  color: string | null;
-  className: string;
-}) {
-  return (
-    <div
-      className={`relative bg-muted ${className}`}
-      style={!url && color ? { backgroundColor: color } : undefined}
-    >
-      {url && <Image src={url} alt="" fill unoptimized sizes="400px" className="object-cover" />}
-    </div>
   );
 }
 

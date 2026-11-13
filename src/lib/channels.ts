@@ -1,17 +1,26 @@
-// Channel data access. Server-only.
-// Currently reads and mutates the in-memory sample data (changes last until the
-// server restarts). Swap the bodies for database queries later, keeping the signatures.
-// Channel tokens must only ever be read here (server side), encrypted at rest.
+// Channel data access (server-only, Prisma).
+// Channel tokens are omitted from every query by default (see src/lib/db.ts) and
+// must only ever be decrypted here, on the server.
+// TODO: scope every query to the signed-in user's channels once auth exists.
 
 import "server-only";
-import { bioPageStatus, channels as sampleChannels, deals as sampleDeals } from "@/lib/sample-data/dashboard";
+import { getDb } from "@/lib/db";
+import { toAppDateTime } from "@/lib/format";
+import { bioPageStatus } from "@/lib/sample-data/account";
 import type { BioPageStatus, Channel } from "@/lib/types";
 
-/** Connected channels (excludes disconnected ones). */
+const channelSelect = { id: true, type: true, name: true, status: true, botUsername: true } as const;
+
+/** Connected channels (excludes disconnected ones), oldest first. */
 export async function getChannels(): Promise<Channel[]> {
-  return sampleChannels.filter((c) => c.status !== "DISCONNECTED");
+  return getDb().channel.findMany({
+    where: { status: { not: "DISCONNECTED" } },
+    select: channelSelect,
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
 }
 
+// TODO: move to a Bio settings table once Bio page settings are implemented.
 export async function getBioPageStatus(): Promise<BioPageStatus> {
   return bioPageStatus;
 }
@@ -25,42 +34,39 @@ export function getBioUrl(): { label: string; href: string } {
 
 /** Latest published post time ("YYYY-MM-DDTHH:mm") per channel id. */
 export async function getLastPublishedAtByChannel(): Promise<Record<string, string>> {
+  const grouped = await getDb().post.groupBy({
+    by: ["channelId"],
+    where: { status: "PUBLISHED" },
+    _max: { scheduledAt: true },
+  });
   const result: Record<string, string> = {};
-  for (const deal of sampleDeals) {
-    for (const post of deal.posts) {
-      if (post.status !== "PUBLISHED") continue;
-      const current = result[post.channelId];
-      if (!current || post.scheduledAt > current) result[post.channelId] = post.scheduledAt;
-    }
+  for (const group of grouped) {
+    if (group._max.scheduledAt) result[group.channelId] = toAppDateTime(group._max.scheduledAt);
   }
   return result;
 }
 
-function findConnected(channelId: string) {
-  return sampleChannels.find((c) => c.id === channelId && c.status !== "DISCONNECTED");
-}
-
 export async function renameChannel(channelId: string, name: string): Promise<boolean> {
-  const channel = findConnected(channelId);
-  if (!channel) return false;
-  channel.name = name;
-  return true;
+  const { count } = await getDb().channel.updateMany({
+    where: { id: channelId, status: { not: "DISCONNECTED" } },
+    data: { name },
+  });
+  return count > 0;
 }
 
 /**
- * Disconnects a channel (TODO: delete its encrypted token) and cancels its pending
- * posts. The channel row is kept so published/failed history still shows its name.
+ * Disconnects a channel: deletes its stored token and cancels its pending posts.
+ * The channel row is kept so published/failed history still shows its name.
  * Returns the number of cancelled posts, or null if the channel does not exist.
  */
 export async function disconnectChannel(channelId: string): Promise<number | null> {
-  const channel = findConnected(channelId);
-  if (!channel) return null;
-  channel.status = "DISCONNECTED";
-  let cancelled = 0;
-  for (const deal of sampleDeals) {
-    const before = deal.posts.length;
-    deal.posts = deal.posts.filter((p) => !(p.channelId === channelId && p.status === "PENDING"));
-    cancelled += before - deal.posts.length;
-  }
-  return cancelled;
+  return getDb().$transaction(async (tx) => {
+    const { count } = await tx.channel.updateMany({
+      where: { id: channelId, status: { not: "DISCONNECTED" } },
+      data: { status: "DISCONNECTED", accessTokenEncrypted: null },
+    });
+    if (count === 0) return null;
+    const cancelled = await tx.post.deleteMany({ where: { channelId, status: "PENDING" } });
+    return cancelled.count;
+  });
 }

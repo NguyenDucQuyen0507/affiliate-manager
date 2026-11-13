@@ -5,7 +5,14 @@ Facebook Pages, a Telegram channel and a public Bio link page.
 
 ## Stack
 - Next.js + TypeScript, Tailwind CSS, shadcn/ui (Radix), lucide-react
-- PostgreSQL (ORM to be decided: Prisma or Drizzle)
+- PostgreSQL + Prisma 7 (`prisma/schema.prisma`, config in `prisma7.config.ts`,
+  client generated to `src/generated/prisma`, not committed)
+- Data access only through server-only modules in `src/lib` (`deals.ts`, `posts.ts`,
+  `channels.ts`, `bio.ts`) using `getDb()` from `src/lib/db.ts`; pages never import Prisma directly.
+
+## Local database
+- `npm run db:up` (Docker PostgreSQL from `compose.yaml`), then `npm run db:migrate` and
+  `npm run db:seed` (the seed wipes all data; development only).
 
 ## UI rules
 - The approved design is in `docs/design/`. Read `docs/design/DESIGN.md` before building

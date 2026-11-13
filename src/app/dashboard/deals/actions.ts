@@ -1,18 +1,48 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { dealFormSchema } from "@/lib/deal-schema";
+import { saveDealRecord } from "@/lib/deals";
 
-export type SaveDealResult = { ok: true } | { ok: false; message: string };
+// TODO: verify the session once auth exists.
+
+export type SaveDealResult = { ok: true; dealId: string } | { ok: false; message: string };
+
+const dealIdSchema = z.string().min(1).max(64);
+const imageUrlsSchema = z
+  .array(z.string().max(2000).regex(/^https?:\/\/\S+$/))
+  .max(10);
 
 /**
  * Creates (dealId = null) or updates a deal and (re)schedules its posts.
- * TODO: check the session once auth exists, persist to the database,
- * create/update one Post per enabled channel and revalidate /dashboard/deals.
+ * `imageUrls` are already-hosted image URLs; uploading new files is not supported yet.
  */
-export async function saveDeal(dealId: string | null, input: unknown): Promise<SaveDealResult> {
-  const parsed = dealFormSchema.safeParse(input);
-  if (!parsed.success) {
+export async function saveDeal(
+  dealId: string | null,
+  input: unknown,
+  imageUrls: unknown,
+): Promise<SaveDealResult> {
+  const values = dealFormSchema.safeParse(input);
+  const images = imageUrlsSchema.safeParse(imageUrls);
+  const id = dealId === null ? null : dealIdSchema.safeParse(dealId);
+  if (!values.success || !images.success || (id && !id.success)) {
     return { ok: false, message: "Dữ liệu chưa hợp lệ, vui lòng kiểm tra lại các ô báo lỗi." };
   }
-  return { ok: true };
+
+  const result = await saveDealRecord(id?.data ?? null, values.data, images.data);
+  if (!result.ok) {
+    return {
+      ok: false,
+      message:
+        result.reason === "DEAL_NOT_FOUND"
+          ? "Không tìm thấy deal này. Có thể deal đã bị xóa."
+          : "Có kênh đã bị ngắt kết nối. Hãy tải lại trang và chọn lại kênh.",
+    };
+  }
+
+  // The deal shows up on every dashboard page and possibly on the Bio page.
+  revalidatePath("/dashboard", "layout");
+  revalidatePath("/bio");
+  return { ok: true, dealId: result.dealId };
 }

@@ -1,4 +1,5 @@
-// Domain types shared by the UI. Keep in sync with the database schema once it exists.
+// Domain types shared by the UI. The data layer (src/lib/*.ts, server-only) maps
+// Prisma rows to these shapes; keep them in sync with prisma/schema.prisma.
 
 export type Marketplace = "SHOPEE" | "TIKTOK_SHOP" | "LAZADA";
 
@@ -38,18 +39,20 @@ export type Post = {
   scheduledAt: string;
   status: PostStatus;
   /** Human-readable reason, set when status is FAILED. */
-  errorReason: string | null;
+  errorMessage: string | null;
 };
 
 export type Deal = {
   id: string;
   title: string;
+  /** "" when not set (drafts). */
   category: string;
-  marketplace: Marketplace;
+  /** Null only for drafts saved without an affiliate link. */
+  marketplace: Marketplace | null;
   affiliateUrl: string;
   imageUrls: string[];
-  /** Prices in VND (integer). */
-  price: number;
+  /** Prices in VND (integer). Null only for drafts saved without a price. */
+  price: number | null;
   originalPrice: number | null;
   /** In-app search code shoppers can type on the marketplace (e.g. a Shopee voucher keyword). */
   searchCode: string | null;
@@ -59,6 +62,4 @@ export type Deal = {
   showOnBio: boolean;
   status: DealStatus;
   posts: Post[];
-  /** Placeholder background shown until real product images are available. */
-  thumbnailColor: string;
 };

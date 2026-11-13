@@ -56,6 +56,39 @@ export function nowInAppTimeZone(now = new Date()) {
   return { date, dateTime: `${date}T${parts.hour}:${parts.minute}` };
 }
 
+// --- Database boundary -------------------------------------------------------
+// The UI works with app-local strings; the database stores real timestamps.
+// Vietnam has no daylight saving time, so the offset is fixed.
+const APP_UTC_OFFSET = "+07:00";
+
+/** Timestamp → app-local "YYYY-MM-DDTHH:mm". */
+export function toAppDateTime(date: Date) {
+  return nowInAppTimeZone(date).dateTime;
+}
+
+/** App-local "YYYY-MM-DDTHH:mm" → timestamp. */
+export function fromAppDateTime(localDateTime: string) {
+  return new Date(`${localDateTime}:00${APP_UTC_OFFSET}`);
+}
+
+/** [start, end) timestamps of an app-local day (YYYY-MM-DD). */
+export function appDayRange(dateKey: string) {
+  return {
+    start: fromAppDateTime(`${dateKey}T00:00`),
+    end: fromAppDateTime(`${addDays(dateKey, 1)}T00:00`),
+  };
+}
+
+/** Postgres DATE column (read as UTC midnight) → "YYYY-MM-DD". */
+export function toDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+/** "YYYY-MM-DD" → value for a Postgres DATE column. */
+export function fromDateKey(dateKey: string) {
+  return new Date(`${dateKey}T00:00:00Z`);
+}
+
 /** Today's date in APP_TIME_ZONE as YYYY-MM-DD. */
 export function todayKey() {
   return nowInAppTimeZone().date;

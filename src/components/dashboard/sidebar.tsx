@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -16,7 +15,8 @@ import {
 } from "@/components/ui/sheet";
 import { navItems } from "./nav-items";
 
-type SidebarUser = { name: string; role: string };
+/** Server-rendered user card (see components/dashboard/user-card.tsx). */
+type UserCardSlot = { userCard: React.ReactNode };
 
 function isActive(pathname: string, href: string) {
   if (href === "/dashboard") return pathname === href;
@@ -80,52 +80,30 @@ function NavLinkList({
   );
 }
 
-function UserCard({ user }: { user: SidebarUser }) {
-  return (
-    <div className="mt-auto flex items-center gap-2.5 border-t border-sidebar-border px-2 py-3">
-      <Avatar className="after:hidden">
-        <AvatarFallback className="bg-sidebar-border text-[13px] font-semibold text-white">
-          {user.name.charAt(0)}
-        </AvatarFallback>
-      </Avatar>
-      <div className="flex flex-col">
-        <span className="text-[13px] font-semibold text-white">{user.name}</span>
-        <span className="text-xs text-sidebar-muted">{user.role}</span>
-      </div>
-    </div>
-  );
-}
-
-function SidebarBody({
-  user,
-  onNavigate,
-}: {
-  user: SidebarUser;
-  onNavigate?: () => void;
-}) {
+function SidebarBody({ userCard, onNavigate }: UserCardSlot & { onNavigate?: () => void }) {
   return (
     <>
       <Brand />
       <NavLinks onNavigate={onNavigate} />
-      <UserCard user={user} />
+      {userCard}
     </>
   );
 }
 
 /** Fixed dark sidebar on large screens. */
-export function DesktopSidebar({ user }: { user: SidebarUser }) {
+export function DesktopSidebar({ userCard }: UserCardSlot) {
   return (
     <nav
       aria-label="Điều hướng chính"
       className="sticky top-0 hidden h-svh w-[232px] shrink-0 flex-col gap-7 overflow-y-auto bg-sidebar px-4 py-6 text-sidebar-foreground lg:flex"
     >
-      <SidebarBody user={user} />
+      <SidebarBody userCard={userCard} />
     </nav>
   );
 }
 
 /** Top bar with a Sheet-based sidebar on narrow screens. */
-export function MobileTopBar({ user }: { user: SidebarUser }) {
+export function MobileTopBar({ userCard }: UserCardSlot) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -151,7 +129,7 @@ export function MobileTopBar({ user }: { user: SidebarUser }) {
             Chuyển giữa các trang quản lý
           </SheetDescription>
           <nav aria-label="Điều hướng chính" className="flex flex-1 flex-col gap-7">
-            <SidebarBody user={user} onNavigate={() => setOpen(false)} />
+            <SidebarBody userCard={userCard} onNavigate={() => setOpen(false)} />
           </nav>
         </SheetContent>
       </Sheet>

@@ -5,6 +5,7 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db";
 
@@ -12,6 +13,8 @@ export type AdminUser = { id: string; name: string; email: string };
 
 /** Returns the signed-in admin, or the admin from the session if it is still valid; null otherwise. */
 export const getAdmin = cache(async (): Promise<AdminUser | null> => {
+  // Reading the session may refresh the cookie (random values): request time only.
+  await connection();
   const session = await auth();
   const id = session?.user?.id;
   if (!id || session.user.role !== "ADMIN") return null;

@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { DealFilters } from "@/components/deals/deal-filters";
 import { DealTable } from "@/components/deals/deal-table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { requireAdmin } from "@/lib/auth-guard";
 import { parseDealFilters } from "@/lib/deal-filters";
 import { queryDeals } from "@/lib/deals";
 
@@ -31,7 +32,8 @@ async function DealsView({
   searchParams: PageProps<"/dashboard/deals">["searchParams"];
 }) {
   const filters = parseDealFilters(await searchParams);
-  const result = await queryDeals(filters);
+  const admin = await requireAdmin();
+  const result = await queryDeals(admin.id, filters);
   // Use the clamped page so pagination links stay valid for out-of-range ?page=.
   const current = { ...filters, page: result.page };
 

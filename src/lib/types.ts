@@ -54,12 +54,18 @@ export type Deal = {
   /** Prices in VND (integer). Null only for drafts saved without a price. */
   price: number | null;
   originalPrice: number | null;
+  /** When the price was last changed, app-local "YYYY-MM-DDTHH:mm" (null if never set). */
+  priceCheckedAt: string | null;
   /** In-app search code shoppers can type on the marketplace (e.g. a Shopee voucher keyword). */
   searchCode: string | null;
   /** ISO date (YYYY-MM-DD), or null when no expiry is set. */
   expiresAt: string | null;
   caption: string;
   showOnBio: boolean;
+  /** Owner's short comment for Bio ("Nhận xét của mình"); "" when not set. */
+  note: string;
+  /** Shown in "Deal hôm nay" on the Bio page. */
+  isFeatured: boolean;
   status: DealStatus;
   posts: Post[];
 };

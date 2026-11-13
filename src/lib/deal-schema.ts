@@ -1,10 +1,12 @@
 // Deal editor form schema, shared by the client form and the server action.
 
 import { z } from "zod";
-import { detectMarketplace } from "@/lib/labels";
+import { todayKey } from "@/lib/format";
+import { AFFILIATE_URL_ERROR, isAllowedAffiliateUrl } from "@/lib/labels";
 import type { Channel, Deal } from "@/lib/types";
 
-export const dealIntents = ["draft", "schedule"] as const;
+/** "publish" = "Lưu & đăng ngay": like "schedule", but every chosen channel goes out now. */
+export const dealIntents = ["draft", "schedule", "publish"] as const;
 export type DealIntent = (typeof dealIntents)[number];
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -22,6 +24,7 @@ const targetSchema = z.object({
 /**
  * "Lưu nháp" only needs a product name; "Lên lịch đăng" needs everything required
  * to actually publish (link, price, caption, at least one channel with a time).
+ * "Lưu & đăng ngay" needs the same, except times (posts go out now).
  */
 export const dealFormSchema = z
   .object({
@@ -38,28 +41,44 @@ export const dealFormSchema = z
       .regex(/^[A-Za-z0-9_-]*$/, "Chỉ dùng chữ không dấu, số, - và _"),
     expiresAt: z.string().refine((v) => v === "" || DATE_RE.test(v), "Ngày không hợp lệ"),
     caption: z.string().max(2000, "Caption tối đa 2000 ký tự"),
+    note: z.string().trim().max(280, "Nhận xét tối đa 280 ký tự"),
     showOnBio: z.boolean(),
+    isFeatured: z.boolean(),
     targets: z.array(targetSchema),
   })
   .superRefine((values, ctx) => {
     const issue = (path: (string | number)[], message: string) =>
       ctx.addIssue({ code: "custom", path, message });
 
-    if (values.affiliateUrl && !detectMarketplace(values.affiliateUrl)) {
-      issue(["affiliateUrl"], "Link phải là link Shopee, TikTok Shop hoặc Lazada");
+    if (values.affiliateUrl && !isAllowedAffiliateUrl(values.affiliateUrl)) {
+      issue(["affiliateUrl"], AFFILIATE_URL_ERROR);
     }
     if (values.price && values.originalPrice && values.originalPrice < values.price) {
       issue(["originalPrice"], "Giá gốc phải lớn hơn hoặc bằng giá khuyến mãi");
     }
 
-    if (values.intent !== "schedule") return;
+    if (values.intent === "draft") return;
+    const publishNow = values.intent === "publish";
 
-    if (!values.affiliateUrl) issue(["affiliateUrl"], "Dán link affiliate để lên lịch đăng");
+    if (!values.affiliateUrl) {
+      issue(["affiliateUrl"], publishNow ? "Dán link affiliate để đăng" : "Dán link affiliate để lên lịch đăng");
+    }
     if (!values.category) issue(["category"], "Nhập danh mục để hiện trên trang Bio");
     if (!values.price) issue(["price"], "Nhập giá khuyến mãi");
     if (!values.caption.trim()) issue(["caption"], "Nhập caption cho bài đăng");
+    // An active deal past its expiry date is shown as "Hết hạn" right away.
+    if (values.expiresAt && values.expiresAt < todayKey()) {
+      issue(["expiresAt"], "Ngày hết hạn đã qua, hãy chọn ngày khác để gia hạn");
+    }
 
     const enabled = values.targets.filter((t) => t.enabled);
+    if (publishNow) {
+      // Times are ignored: every chosen channel that has not been posted to goes out now.
+      if (!enabled.some((t) => !t.locked)) {
+        issue(["targets", "root"], "Chọn ít nhất một kênh chưa đăng để đăng ngay");
+      }
+      return;
+    }
     if (enabled.length === 0 && !values.showOnBio) {
       issue(["targets", "root"], "Chọn ít nhất một kênh để đăng");
     }
@@ -87,7 +106,9 @@ export function getDealFormDefaults(channels: Channel[], deal?: Deal | null): De
     searchCode: deal?.searchCode ?? "",
     expiresAt: deal?.expiresAt ?? "",
     caption: deal?.caption ?? "",
+    note: deal?.note ?? "",
     showOnBio: deal?.showOnBio ?? false,
+    isFeatured: deal?.isFeatured ?? false,
     targets: channels.map((channel) => {
       // Prefer the post that can still change; otherwise show the latest one sent.
       const posts = deal?.posts.filter((p) => p.channelId === channel.id) ?? [];

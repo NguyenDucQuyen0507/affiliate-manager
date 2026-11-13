@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { DealEditor } from "@/components/deals/editor/deal-editor";
 import { EditorSkeleton } from "@/components/deals/editor/editor-skeleton";
 import { getChannels } from "@/lib/channels";
+import { requireAdmin } from "@/lib/auth-guard";
 import { getDealById, getDealCategories } from "@/lib/deals";
 
 export const metadata: Metadata = {
@@ -20,10 +21,12 @@ export default function EditDealPage({ params }: PageProps<"/dashboard/deals/[id
 
 async function EditDeal({ params }: { params: PageProps<"/dashboard/deals/[id]">["params"] }) {
   const { id } = await params;
+  const admin = await requireAdmin();
+  // Someone else's deal looks exactly like a missing one: 404.
   const [deal, channels, categories] = await Promise.all([
-    getDealById(id),
+    getDealById(admin.id, id),
     getChannels(),
-    getDealCategories(),
+    getDealCategories(admin.id),
   ]);
   if (!deal) notFound();
   return <DealEditor deal={deal} channels={channels} categories={categories} />;

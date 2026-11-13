@@ -1,16 +1,17 @@
 // Deal data access (server-only, Prisma).
-// TODO: scope every query to the signed-in user's deals once auth exists.
+// Every function takes the signed-in admin's id (from requireAdmin(), never from the
+// client) and only reads or writes that user's deals.
 
 import "server-only";
 import type { Prisma } from "@/generated/prisma/client";
 import { getDb } from "@/lib/db";
 import { DEALS_PAGE_SIZE, type DealFilters, type DealStatusFilter } from "@/lib/deal-filters";
 import type { DealFormValues } from "@/lib/deal-schema";
-import { addDays, fromAppDateTime, fromDateKey, toAppDateTime, toDateKey } from "@/lib/format";
+import { addDays, fromAppDateTime, fromDateKey, toAppDateTime, toDateKey, todayKey } from "@/lib/format";
 import { BIO_LABEL, channelTypeLabel, detectMarketplace } from "@/lib/labels";
 import { toUiPostStatus } from "@/lib/posts";
-import { buildDealSearchText, normalizeSearch } from "@/lib/search-text";
-import type { ChannelType, Deal } from "@/lib/types";
+import { buildDealSearchText } from "@/lib/search-text";
+import type { ChannelType, Deal, DealStatus } from "@/lib/types";
 
 const dealWithPosts = {
   posts: { orderBy: { scheduledAt: "asc" } },
@@ -18,8 +19,34 @@ const dealWithPosts = {
 
 type DealRow = Prisma.DealGetPayload<{ include: typeof dealWithPosts }>;
 
+/** Today in Vietnam as a value comparable with the Deal.expiresAt DATE column. */
+function appToday() {
+  return fromDateKey(todayKey());
+}
+
+/**
+ * Status shown in the UI. "Hết hạn" follows the expiry date, not only the stored
+ * status: an active deal whose expiresAt is before today (Vietnam time) is expired.
+ * Drafts stay drafts until they are scheduled.
+ */
+function effectiveStatus(status: DealStatus, expiresAt: Date | null, today: Date): DealStatus {
+  return status === "ACTIVE" && expiresAt !== null && expiresAt < today ? "EXPIRED" : status;
+}
+
+/** Same rule as effectiveStatus(), as a database filter. */
+function statusWhere(status: DealStatus, today: Date): Prisma.DealWhereInput {
+  switch (status) {
+    case "ACTIVE":
+      return { status: "ACTIVE", OR: [{ expiresAt: null }, { expiresAt: { gte: today } }] };
+    case "EXPIRED":
+      return { OR: [{ status: "EXPIRED" }, { status: "ACTIVE", expiresAt: { lt: today } }] };
+    case "DRAFT":
+      return { status: "DRAFT" };
+  }
+}
+
 /** Prisma row → UI domain type. */
-function toDeal(row: DealRow): Deal {
+function toDeal(row: DealRow, today: Date): Deal {
   return {
     id: row.id,
     title: row.title,
@@ -29,11 +56,14 @@ function toDeal(row: DealRow): Deal {
     imageUrls: row.imageUrls,
     price: row.price,
     originalPrice: row.originalPrice,
+    priceCheckedAt: row.priceCheckedAt ? toAppDateTime(row.priceCheckedAt) : null,
     searchCode: row.searchCode,
     expiresAt: row.expiresAt ? toDateKey(row.expiresAt) : null,
     caption: row.caption,
     showOnBio: row.showOnBio,
-    status: row.status,
+    note: row.note,
+    isFeatured: row.isFeatured,
+    status: effectiveStatus(row.status, row.expiresAt, today),
     posts: row.posts.map((post) => ({
       id: post.id,
       channelId: post.channelId,
@@ -68,34 +98,37 @@ function channelLabels(types: ChannelType[], showOnBio: boolean) {
   return labels;
 }
 
-export async function queryDeals(filters: DealFilters): Promise<DealQueryResult> {
-  const db = getDb();
-  const q = normalizeSearch(filters.q);
+const STATUSES: DealStatus[] = ["ACTIVE", "DRAFT", "EXPIRED"];
 
-  // Search + marketplace apply to every tab; the status tab narrows the list.
+export async function queryDeals(ownerId: string, filters: DealFilters): Promise<DealQueryResult> {
+  const db = getDb();
+  const today = appToday();
+  // Same normalisation as the stored Deal.searchText (no diacritics, lowercase).
+  const q = buildDealSearchText(filters.q, null);
+
+  // Owner + search + marketplace apply to every tab; the status tab narrows the list.
   const base: Prisma.DealWhereInput = {
+    ownerId,
     ...(filters.marketplace !== "ALL" && { marketplace: filters.marketplace }),
     ...(q && { searchText: { contains: q } }),
   };
-  const where: Prisma.DealWhereInput =
-    filters.status === "ALL" ? base : { ...base, status: filters.status };
 
-  const [grouped, total] = await Promise.all([
-    db.deal.groupBy({ by: ["status"], where: base, _count: { _all: true } }),
-    db.deal.count({ where }),
-  ]);
-
+  // The three statuses split the deals with no overlap, so "Tất cả" is their sum.
+  const statusCounts = await Promise.all(
+    STATUSES.map((status) => db.deal.count({ where: { AND: [base, statusWhere(status, today)] } })),
+  );
   const counts: Record<DealStatusFilter, number> = { ALL: 0, ACTIVE: 0, DRAFT: 0, EXPIRED: 0 };
-  for (const group of grouped) {
-    counts[group.status] = group._count._all;
-    counts.ALL += group._count._all;
-  }
+  STATUSES.forEach((status, index) => {
+    counts[status] = statusCounts[index];
+    counts.ALL += statusCounts[index];
+  });
 
+  const total = counts[filters.status];
   const pageCount = Math.max(1, Math.ceil(total / DEALS_PAGE_SIZE));
   const page = Math.min(filters.page, pageCount);
 
   const rows = await db.deal.findMany({
-    where,
+    where: filters.status === "ALL" ? base : { AND: [base, statusWhere(filters.status, today)] },
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
     skip: (page - 1) * DEALS_PAGE_SIZE,
     take: DEALS_PAGE_SIZE,
@@ -104,7 +137,7 @@ export async function queryDeals(filters: DealFilters): Promise<DealQueryResult>
 
   return {
     deals: rows.map((row) => ({
-      ...toDeal(row),
+      ...toDeal(row, today),
       channelLabels: channelLabels(
         row.posts.map((post) => post.channel.type),
         row.showOnBio,
@@ -118,21 +151,23 @@ export async function queryDeals(filters: DealFilters): Promise<DealQueryResult>
   };
 }
 
-export async function getDealById(id: string): Promise<Deal | null> {
-  const row = await getDb().deal.findUnique({ where: { id }, include: dealWithPosts });
-  return row ? toDeal(row) : null;
+/** The deal if it exists and belongs to `ownerId`; null otherwise (show a 404). */
+export async function getDealById(ownerId: string, id: string): Promise<Deal | null> {
+  const row = await getDb().deal.findFirst({ where: { id, ownerId }, include: dealWithPosts });
+  return row ? toDeal(row, appToday()) : null;
 }
 
-/** Active deal count, and how many of them expire between today and Sunday. */
-export async function getDealStats(today: string) {
+/** Active (not expired) deal count, and how many of them expire between today and Sunday. */
+export async function getDealStats(ownerId: string, today: string) {
   const [y, m, d] = today.split("-").map(Number);
   const daysToSunday = (7 - new Date(Date.UTC(y, m - 1, d)).getUTCDay()) % 7;
   const db = getDb();
 
   const [active, expiringThisWeek] = await Promise.all([
-    db.deal.count({ where: { status: "ACTIVE" } }),
+    db.deal.count({ where: { ownerId, ...statusWhere("ACTIVE", fromDateKey(today)) } }),
     db.deal.count({
       where: {
+        ownerId,
         status: "ACTIVE",
         expiresAt: { gte: fromDateKey(today), lte: fromDateKey(addDays(today, daysToSunday)) },
       },
@@ -141,10 +176,10 @@ export async function getDealStats(today: string) {
   return { active, expiringThisWeek };
 }
 
-/** Categories already used by deals, for the editor's suggestions. */
-export async function getDealCategories(): Promise<string[]> {
+/** Categories already used by the owner's deals, for the editor's suggestions. */
+export async function getDealCategories(ownerId: string): Promise<string[]> {
   const rows = await getDb().deal.findMany({
-    where: { category: { not: "" } },
+    where: { ownerId, category: { not: "" } },
     distinct: ["category"],
     select: { category: true },
   });
@@ -152,7 +187,7 @@ export async function getDealCategories(): Promise<string[]> {
 }
 
 export type SaveDealOutcome =
-  | { ok: true; dealId: string }
+  | { ok: true; dealId: string; /** Posts queued to go out now ("publish" only). */ publishedNow: number }
   | { ok: false; reason: "DEAL_NOT_FOUND" | "CHANNEL_UNAVAILABLE" };
 
 type Tx = Prisma.TransactionClient;
@@ -160,21 +195,39 @@ type Tx = Prisma.TransactionClient;
 /** Posts in these states have not gone out yet, so the editor may move or remove them. */
 const OPEN_POST_STATUSES = ["PENDING", "FAILED"] as const;
 
+export function createDealRecord(ownerId: string, values: DealFormValues, imageUrls: string[]) {
+  return writeDeal(ownerId, null, values, imageUrls);
+}
+
+/** Updates a deal owned by `ownerId` (DEAL_NOT_FOUND otherwise). Recomputes searchText. */
+export function updateDealRecord(
+  ownerId: string,
+  dealId: string,
+  values: DealFormValues,
+  imageUrls: string[],
+) {
+  return writeDeal(ownerId, dealId, values, imageUrls);
+}
+
 /**
- * Creates (dealId = null) or updates a deal from validated editor values.
- * Callers must have checked the session (requireAdmin) first.
+ * Writes a deal from validated editor values. Callers must have checked the session
+ * (requireAdmin) and pass the admin's id; new deals belong to that admin.
  * "draft" keeps the deal off every channel: its unsent posts are removed.
  * "schedule" activates it and makes the unsent posts match the chosen channels/times.
+ * "publish" is "schedule" with every chosen channel set to now, so the queue sends
+ * them first (same as "Đăng ngay" on the schedule page).
  * Posts already published or being published are never touched.
+ * priceCheckedAt is set whenever the price or original price changes.
  */
-export async function saveDealRecord(
-  /** The signed-in admin (from the session, never from the form); owner of new deals. */
+async function writeDeal(
   ownerId: string,
   dealId: string | null,
   values: DealFormValues,
   imageUrls: string[],
 ): Promise<SaveDealOutcome> {
-  const schedule = values.intent === "schedule";
+  const schedule = values.intent !== "draft";
+  const publishNow = values.intent === "publish";
+  const now = new Date();
   const searchCode = values.searchCode || null;
   const data = {
     title: values.title,
@@ -188,18 +241,23 @@ export async function saveDealRecord(
     expiresAt: values.expiresAt ? fromDateKey(values.expiresAt) : null,
     caption: values.caption,
     showOnBio: values.showOnBio,
+    note: values.note,
+    // "Deal hôm nay" is a section of the Bio page, so it needs the deal on Bio.
+    isFeatured: values.showOnBio && values.isFeatured,
     status: schedule ? "ACTIVE" : "DRAFT",
     searchText: buildDealSearchText(values.title, searchCode),
   } satisfies Prisma.DealUncheckedUpdateInput;
 
-  // channelId → new time. An enabled target without a time is a locked (already
-  // published) row: leave that channel as it is.
+  // channelId → new time.
   const wanted = new Map<string, Date>();
   const untouched = new Set<string>();
   if (schedule) {
     for (const target of values.targets) {
       if (!target.enabled) continue;
-      if (target.scheduledAt) wanted.set(target.channelId, fromAppDateTime(target.scheduledAt));
+      // A locked target was already published: leave that channel as it is.
+      if (target.locked) untouched.add(target.channelId);
+      else if (publishNow) wanted.set(target.channelId, now);
+      else if (target.scheduledAt) wanted.set(target.channelId, fromAppDateTime(target.scheduledAt));
       else untouched.add(target.channelId);
     }
   }
@@ -214,19 +272,29 @@ export async function saveDealRecord(
 
     let id: string;
     if (dealId) {
-      const { count } = await tx.deal.updateMany({ where: { id: dealId }, data });
-      if (count === 0) return { ok: false, reason: "DEAL_NOT_FOUND" };
+      const current = await tx.deal.findFirst({
+        where: { id: dealId, ownerId },
+        select: { price: true, originalPrice: true },
+      });
+      if (!current) return { ok: false, reason: "DEAL_NOT_FOUND" };
+      const priceChanged =
+        current.price !== data.price || current.originalPrice !== data.originalPrice;
+      await tx.deal.update({
+        where: { id: dealId },
+        data: { ...data, ...(priceChanged && { priceCheckedAt: now }) },
+      });
       id = dealId;
     } else {
+      const hasPrice = data.price !== null || data.originalPrice !== null;
       const created = await tx.deal.create({
-        data: { ...data, ownerId },
+        data: { ...data, ownerId, priceCheckedAt: hasPrice ? now : null },
         select: { id: true },
       });
       id = created.id;
     }
 
     await syncPosts(tx, id, wanted, untouched);
-    return { ok: true, dealId: id };
+    return { ok: true, dealId: id, publishedNow: publishNow ? wanted.size : 0 };
   });
 }
 
@@ -265,4 +333,22 @@ async function syncPosts(tx: Tx, dealId: string, wanted: Map<string, Date>, unto
     // The status guard skips posts a worker claimed in the meantime.
     await tx.post.deleteMany({ where: { id: { in: toDelete }, status: { in: [...OPEN_POST_STATUSES] } } });
   }
+}
+
+export type DeleteDealOutcome = { ok: true } | { ok: false; reason: "DEAL_NOT_FOUND" | "POST_PUBLISHING" };
+
+/**
+ * Deletes a deal owned by `ownerId` together with all its posts (queued ones are
+ * thereby cancelled). Refused while one of its posts is being published.
+ */
+export async function deleteDealRecord(ownerId: string, dealId: string): Promise<DeleteDealOutcome> {
+  const db = getDb();
+  // One statement, so a worker cannot claim a post between the check and the delete.
+  const { count } = await db.deal.deleteMany({
+    where: { id: dealId, ownerId, posts: { none: { status: "PUBLISHING" } } },
+  });
+  if (count > 0) return { ok: true };
+
+  const exists = await db.deal.count({ where: { id: dealId, ownerId } });
+  return { ok: false, reason: exists > 0 ? "POST_PUBLISHING" : "DEAL_NOT_FOUND" };
 }

@@ -2,10 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { requireAdmin } from "@/lib/auth-guard";
 import { disconnectChannel, renameChannel } from "@/lib/channels";
 import { telegramConnectSchema } from "@/lib/channel-schema";
 
-// TODO: verify the session in every action once auth exists.
+// Every action starts with requireAdmin(): Server Actions are public endpoints.
 
 export type ChannelActionResult = { ok: true; message: string } | { ok: false; message: string };
 
@@ -31,6 +32,7 @@ function done(message: string): ChannelActionResult {
 }
 
 export async function renameChannelAction(channelId: string, name: string): Promise<ChannelActionResult> {
+  await requireAdmin();
   const id = channelIdSchema.safeParse(channelId);
   const parsedName = z.string().trim().min(1).max(80).safeParse(name);
   if (!id.success) return notFound;
@@ -39,6 +41,7 @@ export async function renameChannelAction(channelId: string, name: string): Prom
 }
 
 export async function disconnectChannelAction(channelId: string): Promise<ChannelActionResult> {
+  await requireAdmin();
   const id = channelIdSchema.safeParse(channelId);
   if (!id.success) return notFound;
   const cancelled = await disconnectChannel(id.data);
@@ -50,12 +53,14 @@ export async function disconnectChannelAction(channelId: string): Promise<Channe
 
 /** TODO: post a test message through the channel's API and report the result. */
 export async function sendTestPostAction(channelId: string, platform: "Facebook" | "Telegram") {
+  await requireAdmin();
   if (!channelIdSchema.safeParse(channelId).success) return notFound;
   return notConnected(platform);
 }
 
 /** TODO: start the Facebook Login flow (pages_manage_posts) and store the page token encrypted. */
 export async function connectFacebookAction(): Promise<ChannelActionResult> {
+  await requireAdmin();
   return notConnected("Facebook");
 }
 
@@ -64,6 +69,7 @@ export async function connectFacebookAction(): Promise<ChannelActionResult> {
  * store the token encrypted. The token must never be returned to the client.
  */
 export async function connectTelegramAction(input: unknown): Promise<ChannelActionResult> {
+  await requireAdmin();
   const parsed = telegramConnectSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Thông tin chưa hợp lệ, vui lòng kiểm tra lại." };
   return notConnected("Telegram");

@@ -162,11 +162,14 @@ const OPEN_POST_STATUSES = ["PENDING", "FAILED"] as const;
 
 /**
  * Creates (dealId = null) or updates a deal from validated editor values.
+ * Callers must have checked the session (requireAdmin) first.
  * "draft" keeps the deal off every channel: its unsent posts are removed.
  * "schedule" activates it and makes the unsent posts match the chosen channels/times.
  * Posts already published or being published are never touched.
  */
 export async function saveDealRecord(
+  /** The signed-in admin (from the session, never from the form); owner of new deals. */
+  ownerId: string,
   dealId: string | null,
   values: DealFormValues,
   imageUrls: string[],
@@ -216,7 +219,7 @@ export async function saveDealRecord(
       id = dealId;
     } else {
       const created = await tx.deal.create({
-        data: { ...data, ownerId: await placeholderOwnerId(tx) },
+        data: { ...data, ownerId },
         select: { id: true },
       });
       id = created.id;
@@ -262,15 +265,4 @@ async function syncPosts(tx: Tx, dealId: string, wanted: Map<string, Date>, unto
     // The status guard skips posts a worker claimed in the meantime.
     await tx.post.deleteMany({ where: { id: { in: toDelete }, status: { in: [...OPEN_POST_STATUSES] } } });
   }
-}
-
-/** TODO: use the signed-in user once auth exists. Until then deals belong to the first admin. */
-async function placeholderOwnerId(tx: Tx) {
-  const admin = await tx.user.findFirst({
-    where: { role: "ADMIN" },
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
-  });
-  if (!admin) throw new Error("No admin user found; run `npm run db:seed` first.");
-  return admin.id;
 }

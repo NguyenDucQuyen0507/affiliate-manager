@@ -2,10 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { requireAdmin } from "@/lib/auth-guard";
 import { dealFormSchema } from "@/lib/deal-schema";
 import { saveDealRecord } from "@/lib/deals";
-
-// TODO: verify the session once auth exists.
 
 export type SaveDealResult = { ok: true; dealId: string } | { ok: false; message: string };
 
@@ -23,6 +22,9 @@ export async function saveDeal(
   input: unknown,
   imageUrls: unknown,
 ): Promise<SaveDealResult> {
+  // Server Actions are public endpoints: always check the session first.
+  const admin = await requireAdmin();
+
   const values = dealFormSchema.safeParse(input);
   const images = imageUrlsSchema.safeParse(imageUrls);
   const id = dealId === null ? null : dealIdSchema.safeParse(dealId);
@@ -30,7 +32,7 @@ export async function saveDeal(
     return { ok: false, message: "Dữ liệu chưa hợp lệ, vui lòng kiểm tra lại các ô báo lỗi." };
   }
 
-  const result = await saveDealRecord(id?.data ?? null, values.data, images.data);
+  const result = await saveDealRecord(admin.id, id?.data ?? null, values.data, images.data);
   if (!result.ok) {
     return {
       ok: false,
